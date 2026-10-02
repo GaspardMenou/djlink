@@ -1,0 +1,27 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/main/resources/web/index.html",
+          "src/main/resources/web/style.css"
+        ],
+        "createdAt": "2026-10-02T20:48:55.900Z",
+        "reason": "Agent: user supplied TimecodeLink reference uses colored deck edges for deck identification; the amber notice edge indicates a network fault. These functional accents are intentional."
+      },
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "src/main/resources/web/index.html"
+        ],
+        "createdAt": "2026-10-02T20:48:56.537Z",
+        "reason": "Agent: the operate surface uses runtime deck titles at 18-20px and BPM at 29-32px over 14px secondary text, verified in the live app. The detector compares only auxiliary dialog headings at 16px and misses the primary runtime hierarchy."
+      }
+    ]
+  }
+}
