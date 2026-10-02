@@ -4,6 +4,12 @@ Application pour suivre un **XDJ-AZ en mode quatre decks** sur Ethernet et envoy
 
 Interface compacte à quatre bandes de decks, compteurs de position et zoom commun de **0,5 à 32 secondes**. Le zoom se règle au curseur, avec +/− ou Ctrl + molette sur une wave. Les decks vides sont réduits au démarrage et peuvent être dépliés. Les réglages lumière s’ouvrent dans un panneau séparé.
 
+## Télécharger pour Windows 11
+
+**[Télécharger DJLink-Windows.zip — bêta 3](https://github.com/GaspardMenou/djlink/releases/download/v1.0.0-beta.3/DJLink-Windows.zip)**
+
+Extrais **tout le ZIP**, ouvre le dossier **DJLink** puis lance **DJLink.exe**. L’exécutable est dans l’archive des [Releases](https://github.com/GaspardMenou/djlink/releases/tag/v1.0.0-beta.3), pas dans les fichiers source du dépôt. Conserve les sous-dossiers à côté de l’EXE : ils contiennent Java et les ressources nécessaires.
+
 ## Démarrer
 
 Pour construire : macOS, outils de ligne de commande Xcode (`swiftc`), JDK 17 ou supérieur (`javac`, `jlink`), Python 3. Les dépendances Java proviennent de Maven Central ; aucun framework web à installer.
@@ -32,7 +38,7 @@ java -Dorg.slf4j.simpleLogger.defaultLogLevel=warn -jar target/djlink-1.0.0.jar
 
 Le moteur Java et l’interface sont communs aux deux plateformes. Le lanceur Windows ouvre une fenêtre d’application Edge dédiée, avec son propre profil, sans barre d’adresse. Il ne ferme pas les autres fenêtres Edge. La version macOS utilise WebKit.
 
-Pour le **PC de régie Windows 11 x64**, télécharge [DJLink-Windows.zip](https://github.com/GaspardMenou/djlink/releases), extrais toute l’archive dans un dossier local puis lance **DJLink\DJLink.exe**. Java est inclus : aucun JDK ni Python à installer. Microsoft Edge doit être présent. Branche le PC sur le même switch que le XDJ-AZ et autorise l’application sur le réseau privé si le pare-feu le demande. Ferme les autres moniteurs PRO DJ LINK qui occupent les ports 50000–50002.
+Pour le **PC de régie Windows 11 x64**, télécharge [DJLink-Windows.zip](https://github.com/GaspardMenou/djlink/releases/download/v1.0.0-beta.3/DJLink-Windows.zip), extrais toute l’archive dans un dossier local puis lance **DJLink\DJLink.exe**. Java est inclus : aucun JDK ni Python à installer. Microsoft Edge doit être présent. Branche le PC sur le même switch que le XDJ-AZ et autorise l’application sur le réseau privé si le pare-feu le demande. Ferme les autres moniteurs PRO DJ LINK qui occupent les ports 50000–50002.
 
 Pour compiler toi-même sur **Windows 10/11**, installe Python 3 et un JDK 17+ avec `javac`, `jlink` et `jpackage` dans PATH. Puis, dans PowerShell :
 
