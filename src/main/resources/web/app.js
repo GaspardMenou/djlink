@@ -9,7 +9,19 @@ const zoomSeconds = () => 32 / 2 ** Number($('wave-zoom').value);
 for (let n = 1; n <= 4; n++) {
   const article = document.createElement('article');
   article.className = 'deck'; article.style.setProperty('--deck-color', colors[n - 1]);
-  article.innerHTML = `<div class="deck-head"><span class="deck-number">DECK <b>${n}</b></span><div class="track-info"><div class="track-title empty" id="title-${n}">Deck vide</div><div class="artist" id="artist-${n}">Aucun morceau chargé</div></div><div class="deck-data"><div class="deck-bpm"><span id="bpm-${n}">—</span><small>BPM</small></div><div class="beat-strip" id="beats-${n}" aria-label="Temps dans la mesure"><i></i><i></i><i></i><i></i></div></div><div class="position-display"><span id="clock-${n}">--:--:--.---</span><small id="clock-label-${n}">Position du morceau</small></div></div><div class="wave-area"><div class="wave-head"><span class="badge" id="badge-${n}">Hors ligne</span><span id="pitch-${n}">Pitch —</span><span id="key-${n}">Tonalité —</span><span class="loop-status" id="loop-${n}">Boucle —</span></div><div class="wave-container"><canvas id="wave-${n}" class="wave-zoom" aria-label="Waveform détaillée du deck ${n}"></canvas><span class="wave-empty" id="wave-empty-${n}">Waveform en attente du matériel</span></div><canvas id="overview-${n}" class="wave-overview" aria-label="Waveform complète du deck ${n}"></canvas><div class="time-line"><span id="elapsed-${n}">--:--</span><span id="position-info-${n}">Position indisponible</span><span id="remaining-${n}">--:--</span></div><div class="cue-list" id="cues-${n}"></div></div><div class="deck-foot"><span class="play-state" id="play-${n}">Inconnu</span><span id="sync-${n}"></span><span class="onair" id="air-${n}">On air —</span></div>`;
+  article.innerHTML = `
+    <div class="deck-head">
+      <div class="deck-number"><span>DECK</span><b>${String(n).padStart(2, '0')}</b></div>
+      <div class="track-info"><div class="track-heading"><div class="track-title empty" id="title-${n}">Deck vide</div><span class="play-state" id="play-${n}">Inconnu</span></div><div class="artist" id="artist-${n}">Aucun morceau chargé</div></div>
+      <div class="deck-data"><div class="deck-bpm"><span id="bpm-${n}">—</span><small>BPM</small></div><div class="beat-strip" id="beats-${n}" aria-label="Temps dans la mesure"><i></i><i></i><i></i><i></i></div></div>
+      <div class="position-display"><span id="clock-${n}">--:--:--.---</span><small id="clock-label-${n}">Position du morceau</small></div>
+    </div>
+    <div class="wave-area">
+      <div class="wave-head"><span class="badge" id="badge-${n}">Hors ligne</span><span id="pitch-${n}">Pitch —</span><span id="key-${n}">Tonalité —</span><div class="deck-signals"><span id="sync-${n}"></span><span class="onair" id="air-${n}">On air —</span><span class="loop-status" id="loop-${n}">Boucle —</span></div></div>
+      <div class="wave-container"><canvas id="wave-${n}" class="wave-zoom" aria-label="Waveform détaillée du deck ${n}"></canvas><span class="wave-empty" id="wave-empty-${n}">Waveform en attente du matériel</span></div>
+      <canvas id="overview-${n}" class="wave-overview" aria-label="Waveform complète du deck ${n}"></canvas>
+      <div class="time-line"><span id="elapsed-${n}">--:--</span><span id="position-info-${n}">Position indisponible</span><div class="cue-list" id="cues-${n}"></div><span id="remaining-${n}">--:--</span></div>
+    </div>`;
   $('decks').append(article);
 }
 function markBeat(id, beat, active) {
@@ -28,7 +40,7 @@ async function ports() {
     const devices = await response.json(); const current = $('midi-port').value;
     $('midi-port').innerHTML = '<option value="-1">Désactivé</option>' + devices.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('');
     if ([...$('midi-port').options].some(o => o.value === current)) $('midi-port').value = current;
-    if (!devices.length) $('midi-hint').textContent = 'Aucun port MIDI. Active un bus IAC dans Configuration audio et MIDI, puis actualise la liste.';
+    if (!devices.length) $('midi-hint').textContent = 'Aucun port MIDI. Connecte une interface MIDI ou active un bus virtuel, puis actualise la liste.';
   } catch (e) { message(e.message, true); }
 }
 function message(text, error = false) {
@@ -49,15 +61,15 @@ function render(s) {
   $('network-open').classList.toggle('network-warning', irregular);
   $('network-summary').textContent = `${s.lightingError ? `Erreur d’envoi : ${s.lightingError} · ` : ''}${s.connected ? 'Signal reçu' : 'Signal en attente'} · lissage ${$('smoothing').selectedOptions[0].textContent} · extrapolation limitée à 1 seconde.`;
   $('network-rows').innerHTML = s.decks.map(d => { const n = d.network; return `<tr><th>${d.number}</th>${n ? `<td>${n.ageMs} ms</td><td>${n.intervalMs} ms</td><td>${n.jitterMs} ms</td><td>${n.maxGapMs} ms</td><td>${n.latePackets}</td><td>${n.sequenceAvailable ? n.sequenceSkips : 'Non disponible'}</td><td>${n.beatCount ? `${n.beatMaxGapMs} ms` : '—'}</td><td>${n.lateBeats}</td><td>${n.beatPhaseSkipsEstimate}</td>` : '<td colspan="9">Aucun état reçu</td>'}</tr>`; }).join('');
-  $('network-log-path').textContent = s.logError ? `Erreur de log : ${s.logError}` : s.logDirectory ? `Logs locaux : ${s.logDirectory}` : 'Consulte les logs depuis l’application sur le Mac serveur.';
+  $('network-log-path').textContent = s.logError ? `Erreur de log : ${s.logError}` : s.logDirectory ? `Logs locaux : ${s.logDirectory}` : 'Consulte les logs depuis l’application sur le PC serveur.';
   const online = s.decks.some(d => d.online);
   $('led').classList.toggle('online', s.connected);
   $('connection').textContent = s.connected ? 'XDJ-AZ connecté' : online ? 'XDJ-AZ détecté' : 'Recherche du XDJ-AZ';
-  $('device').textContent = s.target ? `XDJ-AZ · ${s.target} · Détecté automatiquement` : 'Détection automatique du XDJ-AZ sur le réseau local.';
+  $('device').textContent = s.target ? s.target : 'Détection automatique';
   $('notice').hidden = s.connected;
   $('notice').textContent = s.lightingError ? `Accès réseau : ${s.lightingError}. Sur Mac, vérifie Confidentialité et sécurité → Réseau local → DJLink. Les requêtes sont retentées automatiquement.` : s.linkMessage.includes('impossible') ? s.linkMessage : online
     ? 'XDJ-AZ détecté. Attente des états de lecture ; les BPM de beat peuvent déjà apparaître.'
-    : 'Branche le Mac au même réseau que le XDJ-AZ. Ferme les autres apps PRO DJ LINK pour libérer les ports 50000–50002.';
+    : 'Branche le PC au même réseau que le XDJ-AZ. Ferme les autres apps PRO DJ LINK pour libérer les ports 50000–50002.';
   $('packet-count').textContent = `${s.received.toLocaleString('fr-FR')} paquets reçus`;
   $('network').textContent = s.target ? `PRO DJ LINK · ${s.target} · ${s.linkMessage}` : s.linkMessage;
   for (const d of s.decks) {
@@ -72,7 +84,7 @@ function render(s) {
     $(`bpm-${n}`).textContent = bpm(d.bpm);
     $(`badge-${n}`).textContent = d.master ? 'Master' : d.statusAvailable ? 'Connecté' : d.online ? 'Signal en attente' : 'Signal perdu';
     $(`badge-${n}`).classList.toggle('is-master', d.master);
-    $(`play-${n}`).textContent = d.playing === true ? d.reverse ? '◀ Reverse' : '▶ Lecture' : d.playing === false ? d.ended ? 'Fin du morceau' : 'Pause' : 'État inconnu';
+    $(`play-${n}`).textContent = d.playing === true ? d.reverse ? '◀ Reverse' : '▶ Lecture' : d.playing === false ? d.ended ? 'Fin' : 'Pause' : 'État inconnu';
     $(`play-${n}`).classList.toggle('playing', d.playing === true);
     $(`sync-${n}`).textContent = d.synced ? 'Sync' : '';
     $(`air-${n}`).textContent = d.onAir === true ? 'On air' : d.onAir === false ? 'Hors air' : 'On air —';
@@ -110,7 +122,7 @@ async function poll() {
   } catch {
     transportOnline = performance.now() - receivedAt < 2000;
     $('led').classList.remove('online'); $('connection').textContent = 'Connexion perdue';
-    $('notice').hidden = false; $('notice').textContent = 'Le serveur DJ Link ne répond plus. Relance « Lancer DJ Link.command » sur le Mac.';
+    $('notice').hidden = false; $('notice').textContent = 'Le serveur DJ Link ne répond plus. Relance l’application DJ Link.';
     $('master-bpm').textContent = '—'; $('output-indicator').textContent = 'Connexion perdue';
     $('output-indicator').classList.remove('active');
     for (let n = 1; n <= 4; n++) { $(`bpm-${n}`).textContent = '—'; $(`badge-${n}`).textContent = 'Connexion perdue'; $(`badge-${n}`).classList.remove('is-master'); $(`play-${n}`).textContent = 'État inconnu'; $(`play-${n}`).classList.remove('playing'); $(`air-${n}`).textContent = 'On air —'; $(`air-${n}`).classList.remove('active'); markBeat(`beats-${n}`, 0, false); }
@@ -162,7 +174,7 @@ $('fullscreen').addEventListener('click', async () => {
 document.addEventListener('fullscreenchange', () => $('fullscreen').textContent = document.fullscreenElement ? 'Quitter le plein écran' : 'Plein écran');
 setInterval(() => $('time').textContent = new Date().toLocaleTimeString('fr-FR'), 1000);
 if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
-  $('apply').disabled = true; message('Réglage des sorties depuis localhost:8080 sur le Mac serveur.');
+  $('apply').disabled = true; message('Réglage des sorties depuis localhost:8080 sur le PC serveur.');
 }
 ports().then(poll);
 
@@ -241,9 +253,9 @@ function animateWaves() {
     $(`wave-empty-${d.number}`).textContent = !transportOnline ? 'Connexion perdue' : d.trackId ? 'Waveform non transmise par le matériel' : 'Waveform en attente du matériel';
     $(`elapsed-${d.number}`).textContent = formatTime(position);
     $(`clock-${d.number}`).textContent = position == null ? '--:--:--.---' : `${String(Math.floor(position / 3600000)).padStart(2,'0')}:${String(Math.floor(position / 60000) % 60).padStart(2,'0')}:${String(Math.floor(position / 1000) % 60).padStart(2,'0')}.${String(Math.floor(position) % 1000).padStart(3,'0')}`;
-    $(`clock-label-${d.number}`).textContent = position == null ? 'Position indisponible' : !transportOnline || !d.statusAvailable ? 'Signal perdu · position figée' : d.positionPrecise ? 'Position reçue · h:m:s.ms' : 'Position estimée · h:m:s.ms';
+    $(`clock-label-${d.number}`).textContent = position == null ? 'Position indisponible' : !transportOnline || !d.statusAvailable ? 'Signal perdu · position figée' : d.positionPrecise ? 'Position reçue' : 'Position estimée';
     $(`remaining-${d.number}`).textContent = position != null && duration ? `−${formatTime(Math.max(0, duration - position))}` : '--:--';
-    $(`position-info-${d.number}`).textContent = position == null ? 'Position indisponible' : position == null ? 'Position indisponible' : !transportOnline || !d.statusAvailable ? 'Signal perdu · position figée' : d.positionPrecise ? 'Position du lecteur' : 'Position estimée par la grille';
+    $(`position-info-${d.number}`).textContent = position == null ? 'Position indisponible' : !transportOnline || !d.statusAvailable ? 'Signal perdu · position figée' : d.positionPrecise ? 'Position du lecteur' : 'Position estimée par la grille';
     drawWave($(`wave-${d.number}`), wave, d, position, true);
     drawWave($(`overview-${d.number}`), wave, d, position, false);
   }
