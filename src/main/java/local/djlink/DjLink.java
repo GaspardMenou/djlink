@@ -6,6 +6,7 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.deepsymmetry.beatlink.*;
 import org.deepsymmetry.beatlink.data.*;
+import org.deepsymmetry.beatlink.dbserver.ConnectionManager;
 
 import javax.sound.midi.*;
 import java.io.*;
@@ -25,6 +26,7 @@ public final class DjLink {
     boolean listenersRegistered;
     static final long STALE_MS = 2000;
     final ConcurrentMap<Integer, CdjStatus> statuses = new ConcurrentHashMap<>();
+    final ConcurrentMap<Integer, TrackMetadata> knownMetadata = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, WaveformDetail> requestedWaves = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, LoopWindow> loops = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, Beat> beats = new ConcurrentHashMap<>();
@@ -71,7 +73,7 @@ public final class DjLink {
             .map(d -> d.getAddress().getHostAddress()).distinct().sorted().toList();
         String next = addresses.contains(target) ? target : addresses.isEmpty() ? "" : addresses.get(0);
         if (!next.equals(target)) {
-            stopClock(); statuses.clear(); diagnostics.clear(); requestedWaves.clear(); loops.clear(); beats.clear(); beatTimes.clear(); target = next; lightingMode = false;
+            stopClock(); statuses.clear(); diagnostics.clear(); requestedWaves.clear(); knownMetadata.clear(); loops.clear(); beats.clear(); beatTimes.clear(); target = next; lightingMode = false;
         }
     }
 
@@ -254,12 +256,10 @@ public final class DjLink {
         d.put("duration", null);
         d.put("key", null);
         d.put("cues", List.of());
-        if (statusFresh && MetadataFinder.getInstance().isRunning()) {
-            TrackMetadata m = MetadataFinder.getInstance().getLatestMetadataFor(number);
-            if (m != null && m.trackReference.rekordboxId == status.getRekordboxId()
-                && m.trackReference.player == status.getTrackSourcePlayer()
-                && m.trackReference.slot == status.getTrackSourceSlot()
-                && m.trackType == status.getTrackType()) {
+        if (statusFresh) {
+            TrackMetadata latest = MetadataFinder.getInstance().isRunning() ? MetadataFinder.getInstance().getLatestMetadataFor(number) : null;
+            TrackMetadata m = metadataFor(status, latest, knownMetadata.get(number));
+            if (m != null) {
                 d.put("title", m.getTitle());
                 d.put("artist", m.getArtist() == null ? null : m.getArtist().label);
                 d.put("duration", m.getDuration());
@@ -273,6 +273,40 @@ public final class DjLink {
             }
         }
         return d;
+    }
+
+    static boolean matchesMetadata(CdjStatus status, TrackMetadata metadata) {
+        return status != null && status.getRekordboxId() != 0 && metadata != null
+            && metadata.getTitle() != null && !metadata.getTitle().isBlank()
+            && metadata.trackReference.rekordboxId == status.getRekordboxId()
+            && metadata.trackReference.player == status.getTrackSourcePlayer()
+            && metadata.trackReference.slot == status.getTrackSourceSlot()
+            && metadata.trackType == status.getTrackType();
+    }
+
+    static TrackMetadata metadataFor(CdjStatus status, TrackMetadata latest, TrackMetadata known) {
+        return matchesMetadata(status, latest) ? latest : matchesMetadata(status, known) ? known : null;
+    }
+
+    void metadataTick() {
+        MetadataFinder finder = MetadataFinder.getInstance();
+        if (!finder.isRunning()) return;
+        for (int number = 1; number <= 4; number++) {
+            CdjStatus status = statuses.get(number);
+            if (!fresh(status, System.nanoTime()) || status.getRekordboxId() == 0) continue;
+            try {
+                TrackMetadata metadata = finder.getLatestMetadataFor(number);
+                if (!matchesMetadata(status, metadata)
+                    && ConnectionManager.getInstance().getPlayerDBServerPort(status.getTrackSourcePlayer()) > 0) {
+                    // Empty replies are cached by Beat Link; retry on this worker, never on the UDP or HTTP thread.
+                    metadata = finder.requestMetadataFrom(status);
+                }
+                if (matchesMetadata(statuses.get(number), metadata)) knownMetadata.put(number, metadata);
+            } catch (Exception e) {
+                networkEvents.offer(Map.of("event", "metadata_retry", "deck", number,
+                    "timestamp", System.currentTimeMillis(), "error", e.getClass().getSimpleName()));
+            }
+        }
     }
 
     int selectedDeck(long now) {
@@ -325,6 +359,9 @@ public final class DjLink {
             DeviceFinder.getInstance().start();
             while (target.isEmpty()) { discover(); Thread.sleep(250); }
             if (!listenersRegistered) {
+            MetadataFinder.getInstance().addTrackMetadataListener(update -> {
+                if (matchesMetadata(statuses.get(update.player), update.metadata)) knownMetadata.put(update.player, update.metadata);
+            });
             BeatFinder.getInstance().addBeatListener(beat -> {
                 if (!beat.getAddress().getHostAddress().equals(target) || beat.getDeviceNumber() > 4) return;
                 capture(beat, "beat");
@@ -369,6 +406,10 @@ public final class DjLink {
                         networkEvents.offer(event);
                     }
                     CdjStatus previous = statuses.put(cdj.getDeviceNumber(), cdj);
+                    if (cdj.getRekordboxId() == 0 || (previous != null && (previous.getRekordboxId() != cdj.getRekordboxId()
+                        || previous.getTrackSourcePlayer() != cdj.getTrackSourcePlayer() || previous.getTrackSourceSlot() != cdj.getTrackSourceSlot()))) {
+                        knownMetadata.remove(cdj.getDeviceNumber()); requestedWaves.remove(cdj.getDeviceNumber());
+                    }
                     LoopWindow window = loops.computeIfAbsent(cdj.getDeviceNumber(), n -> new LoopWindow());
                     String key = cdj.getRekordboxId() + ":" + cdj.getTrackSourcePlayer() + ":" + cdj.getTrackSourceSlot();
                     if (previous != null && !fresh(previous, cdj.getTimestamp())) window.observe(key, false, false, 0);
@@ -680,6 +721,7 @@ public final class DjLink {
         }, "pro-dj-link"); connection.setDaemon(true); connection.start();
         Thread clock = new Thread(app::clockLoop, "midi-clock"); clock.setDaemon(true); clock.setPriority(Thread.MAX_PRIORITY); clock.start();
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(app::oscTick, 0, 200, TimeUnit.MILLISECONDS);
+        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(app::metadataTick, 1, 3, TimeUnit.SECONDS);
         Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(app::diagnosticsTick, 5, 5, TimeUnit.SECONDS);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             app.stopClock();

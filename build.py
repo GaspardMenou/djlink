@@ -72,24 +72,40 @@ def build():
     generated = ROOT / 'target/generated-sources'
     # Narrow compatibility fixes to the upstream EPL-2.0 sources, kept in the jar.
     patches = {
-        'org/deepsymmetry/beatlink/VirtualCdj.java': (
+        'org/deepsymmetry/beatlink/VirtualCdj.java': [(
             '            case CDJ_STATUS:',
-            '            case DEVICE_REKORDBOX_LIGHTING_HELLO_BYTES:\n            case CDJ_STATUS:'),
-        'org/deepsymmetry/beatlink/CdjStatus.java': (
+            '            case DEVICE_REKORDBOX_LIGHTING_HELLO_BYTES:\n            case CDJ_STATUS:')],
+        'org/deepsymmetry/beatlink/CdjStatus.java': [(
             '        COLLECTION (4),',
-            '        COLLECTION (4),\n        USB_2_SLOT (7),'),
-        'org/deepsymmetry/beatlink/data/TimeFinder.java': (
+            '        COLLECTION (4),\n        USB_2_SLOT (7),')],
+        'org/deepsymmetry/beatlink/data/TimeFinder.java': [(
             '                if (!lastPosition.precise) {',
-            '                if (lastPosition == null || !lastPosition.precise) {'),
+            '                if (lastPosition == null || !lastPosition.precise) {')],
+        'org/deepsymmetry/beatlink/dbserver/ConnectionManager.java': [(
+            '        if (result == null) {\n            return -1;\n        }',
+            '        if (result == null) {\n            announcementListener.deviceFound(announcement);\n            return -1;\n        }'), (
+            '            dbServerPorts.remove(announcement.getAddress());',
+            '            if (DeviceFinder.getInstance().getCurrentDevices().stream()\n'
+            '                    .noneMatch(device -> device.getAddress().equals(announcement.getAddress()))) {\n'
+            '                dbServerPorts.remove(announcement.getAddress());\n'
+            '            }')],
+        'org/deepsymmetry/beatlink/data/CrateDigger.java': [(
+            '    public synchronized void start() throws Exception {',
+            '    public synchronized void start() throws Exception {\n'
+            '        // XDJ-AZ uses Device Library Plus IDs; DeviceSQL IDs can identify unrelated tracks.\n'
+            '        if (DeviceFinder.getInstance().isRunning() && DeviceFinder.getInstance().getCurrentDevices().stream()\n'
+            '                .anyMatch(device -> device.getDeviceName().equalsIgnoreCase("XDJ-AZ"))) return;')],
     }
     with zipfile.ZipFile(sources) as archive:
-        for name, (before, after) in patches.items():
+        for name, replacements in patches.items():
             source = archive.read(name).decode()
-            if source.count(before) != 1:
-                raise ValueError(f'Le correctif ne correspond plus à {name}')
+            for before, after in replacements:
+                if source.count(before) != 1:
+                    raise ValueError(f'Le correctif ne correspond plus à {name}')
+                source = source.replace(before, after)
             destination = generated / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(source.replace(before, after), encoding="utf-8")
+            destination.write_text(source, encoding="utf-8")
     classes = ROOT / 'target/classes'
     if classes.exists():
         shutil.rmtree(classes)

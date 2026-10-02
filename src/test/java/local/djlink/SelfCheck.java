@@ -19,10 +19,33 @@ public final class SelfCheck {
         return new CdjStatus(new DatagramPacket(p, p.length, InetAddress.getLoopbackAddress(), 50002));
     }
 
+    static org.deepsymmetry.beatlink.data.TrackMetadata metadata(CdjStatus status, String title, int id) throws Exception {
+        var reference = new org.deepsymmetry.beatlink.data.DataReference(status.getTrackSourcePlayer(), status.getTrackSourceSlot(), id);
+        var item = new org.deepsymmetry.beatlink.dbserver.Message(1, 0x4101,
+            new org.deepsymmetry.beatlink.dbserver.NumberField(0), new org.deepsymmetry.beatlink.dbserver.NumberField(id),
+            new org.deepsymmetry.beatlink.dbserver.NumberField((title.length() + 1) * 2), new org.deepsymmetry.beatlink.dbserver.StringField(title),
+            new org.deepsymmetry.beatlink.dbserver.NumberField(2), new org.deepsymmetry.beatlink.dbserver.StringField(""),
+            new org.deepsymmetry.beatlink.dbserver.NumberField(4), new org.deepsymmetry.beatlink.dbserver.NumberField(0),
+            new org.deepsymmetry.beatlink.dbserver.NumberField(0), new org.deepsymmetry.beatlink.dbserver.NumberField(0),
+            new org.deepsymmetry.beatlink.dbserver.NumberField(0), new org.deepsymmetry.beatlink.dbserver.NumberField(0));
+        var constructor = org.deepsymmetry.beatlink.data.TrackMetadata.class.getDeclaredConstructor(
+            org.deepsymmetry.beatlink.data.DataReference.class, CdjStatus.TrackType.class, List.class,
+            org.deepsymmetry.beatlink.data.CueList.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(reference, status.getTrackType(), List.of(item), null);
+    }
+
     public static void main(String[] args) throws Exception {
         CdjStatus player = status(1, true, true);
         assert player.getTrackSourceSlot().protocolValue == 7 : "USB 2 of the four-deck AZ must preserve slot 7";
         assert player.getRekordboxId() == 88;
+        var known = metadata(player, "Test track", 88);
+        var blank = metadata(player, "", 88);
+        assert DjLink.matchesMetadata(player, known);
+        assert !DjLink.matchesMetadata(player, blank) : "An empty catalogue reply is not a title";
+        assert DjLink.metadataFor(player, blank, known) == known : "A transient empty reply must retain the known title";
+        assert DjLink.metadataFor(player, null, metadata(player, "Other track", 89)) == null : "Never reuse a title from another track";
+        assert DjLink.metadataFor(player, known, blank) == known : "New valid metadata replaces the cache";
         assert player.isPlaying() && player.isTempoMaster();
         assert Math.abs(player.getEffectiveTempo() - 140) < 0.001;
         assert DjLink.fresh(player, player.getTimestamp() + 1_999_000_000L);
@@ -84,6 +107,6 @@ public final class SelfCheck {
             catch (IllegalArgumentException expected) { }
             assert app.deck(4, System.nanoTime()).get("bpm") == null : "Unseen deck must be empty";
         } finally { app.oscSocket.close(); }
-        System.out.println("OK — AZ slot 7, BPM, stale/pause handling, OSC encoding, input validation.");
+        System.out.println("OK — AZ slot 7, BPM, stale/pause handling, OSC encoding, input validation, metadata recovery and track matching.");
     }
 }

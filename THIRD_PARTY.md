@@ -2,11 +2,13 @@
 
 DJ Link utilise [Beat Link 8.0.0](https://github.com/Deep-Symmetry/beat-link), copyright © 2016–2025 Deep Symmetry, LLC, sous Eclipse Public License 2.0. Son code source et ses notices sont conservés dans les sources téléchargées et l’archive distribuée. Ce projet est indépendant d’AlphaTheta.
 
-`build.py` génère trois modifications ciblées des sources de Beat Link 8.0.0 avant compilation :
+`build.py` génère cinq modifications ciblées des sources de Beat Link 8.0.0 avant compilation :
 
 - `VirtualCdj` accepte aussi les états Lighting `0x10` du XDJ-AZ.
 - `CdjStatus.TrackSourceSlot` conserve la valeur `7` de la seconde clé USB du XDJ-AZ en mode quatre decks.
 - `TimeFinder` vérifie l’absence de position avant de lire `precise`.
+- `ConnectionManager` conserve le port du catalogue tant qu’un autre deck partage la même adresse et relance sa découverte lorsqu’il manque.
+- `CrateDigger` désactive son démarrage automatique en présence du XDJ-AZ pour éviter les associations erronées avec des identifiants DeviceSQL.
 
 Le handshake Lighting reprend les structures publiques de `VirtualRekordbox` de Beat Link. Les champs d’adresse, de MAC et d’identifiant sont calculés à l’exécution. Les classes modifiées et ces structures restent régies par EPL-2.0. La génération s’arrête si le code source ne correspond pas exactement aux correctifs attendus.
 

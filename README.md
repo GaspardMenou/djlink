@@ -61,6 +61,7 @@ Les données viennent de PRO DJ LINK et du dbserver du lecteur. Le handshake Lig
 - Les bornes exactes de boucle sont utilisées lorsqu’elles sont transmises. Sinon, deux retours identiques dans la grille permettent d’estimer les bornes en beats entiers : **≈ et cadre pointillé**. Les boucles manuelles non alignées et celles inférieures à un beat ne sont pas déterminées précisément par cette estimation.
 - Le compteur `h:m:s.ms` affiche une position de morceau. Il est signalé comme estimé lorsqu’il provient de la grille ; ce n’est pas une sortie SMPTE. Les hot cues ne sont affichés que lorsqu’ils sont réellement fournis.
 - Le lissage **Direct / Normal / Fort** réduit les petits écarts de position. Les corrections de vitesse sont limitées à ±15 % en Normal et ±8 % en Fort pour empêcher les paquets groupés de secouer la wave. Seeks détectés, changement de morceau, pause et reverse se recalent immédiatement. Les retours de boucle utilisent le modulo. Une interruption est extrapolée au maximum une seconde, puis figée ; la dernière wave reste visible. Le lissage n’altère pas les beats MIDI/OSC.
+- Les réponses de titre vides sont réessayées toutes les trois secondes en arrière-plan. Le dernier titre connu est conservé pour la même référence chargée pendant une interruption, puis invalidé lors du changement de morceau ou de lecteur. Si le catalogue ne contient plus cette référence, aucun titre n’est inventé.
 - Si une récupération de wave a échoué au démarrage, elle est retentée. Sans données disponibles, l’interface l’indique. L’application ne reçoit ni audio ni stems, et ne reconstitue pas les gestes du jog qui ne sont pas transmis par le lecteur.
 - La découverte reste active et la connexion est retentée automatiquement après un échec de démarrage. Les caches sont réinitialisés lors d’un changement de lecteur.
 
@@ -80,10 +81,10 @@ Les logs sont exclus du dépôt et ne sont pas téléchargeables sur le réseau 
 ./check.sh
 ```
 
-Vérifications sans framework : décodage AZ/USB 2, BPM, source master, pause et données périmées, encodage OSC, validation des entrées, estimation de boucle, reset de morceau et lissage (jitter, seek, reverse, wrap et interruption). Node.js est facultatif pour le moteur mais nécessaire pour exécuter la vérification JavaScript.
+Vérifications sans framework : décodage AZ/USB 2, BPM, source master, pause et données périmées, encodage OSC, validation des entrées, estimation de boucle, reset de morceau, conservation des titres après réponse vide et lissage (jitter, seek, reverse, wrap et interruption). Node.js est facultatif pour le moteur mais nécessaire pour exécuter la vérification JavaScript.
 
 ## Sources et licence
 
-Projet indépendant d’AlphaTheta et de TimecodeLink, sous **EPL-2.0**. Voir [THIRD_PARTY.md](THIRD_PARTY.md) pour les dépendances et les trois correctifs apportés à Beat Link. Les bibliothèques conservent leurs licences respectives.
+Projet indépendant d’AlphaTheta et de TimecodeLink, sous **EPL-2.0**. Voir [THIRD_PARTY.md](THIRD_PARTY.md) pour les dépendances et les correctifs apportés à Beat Link. Les bibliothèques conservent leurs licences respectives.
 
 Références : [Beat Link](https://github.com/Deep-Symmetry/beat-link), [analyse PRO DJ LINK](https://djl-analysis.deepsymmetry.org/djl-analysis/vcdj.html), [Daslight 5](https://www.daslight.com/en/daslight5), [grandMA2 MIDI Remotes](https://help.malighting.com/grandMA2/en/help/key_remote_control_input.html).
