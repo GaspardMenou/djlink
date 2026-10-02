@@ -208,7 +208,7 @@ public final class DjLink {
         d.put("onAir", statusFresh ? status.isOnAir() : null);
         // A beat alone does not prove the fader is open or the deck is playing.
         d.put("playing", statusFresh ? status.isPlaying() : null);
-        d.put("ended", statusFresh && status.isEnded());
+        d.put("ended", statusFresh && status.isAtEnd());
         d.put("synced", statusFresh ? status.isSynced() : null);
         double bpm = beatFresh ? beat.getEffectiveTempo() : statusFresh ? status.getEffectiveTempo() : 0;
         d.put("bpm", validTempo(bpm) ? bpm : null);

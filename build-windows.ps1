@@ -17,6 +17,6 @@ $taskDestination = Join-Path $PSScriptRoot 'target/windows'
 $taskApp = Join-Path $taskDestination 'DJLink'
 if (Test-Path $taskApp) { Move-Item $taskApp ($taskApp + '-previous-' + (Get-Date -Format 'yyyyMMddHHmmss')) }
 & (Join-Path $taskJavaBin 'jpackage.exe') --type app-image --name DJLink --input $taskInput --main-jar djlink-1.0.0.jar --main-class local.djlink.WindowsLauncher --runtime-image $taskRuntime --dest $taskDestination --app-version 1.0.0 --vendor DJLink
-if ($LASTEXITCODE -ne 0) { throw 'La création de l’application a échoué.' }
+if ($LASTEXITCODE -ne 0) { throw "Windows application packaging failed." }
 Compress-Archive -Path $taskApp -DestinationPath 'target/DJLink-Windows.zip' -Force
 Write-Host 'Application : target/windows/DJLink/DJLink.exe ; archive : target/DJLink-Windows.zip'
