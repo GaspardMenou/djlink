@@ -1,0 +1,40 @@
+name: Windows app
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-java@v6.0.1
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Build portable Windows app
+        shell: pwsh
+        run: ./build-windows.ps1
+      - name: Check decoding, diagnostics and smoothing
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force target/checks | Out-Null
+          javac --release 17 -encoding UTF-8 -cp target/djlink-1.0.0.jar -d target/checks src/test/java/local/djlink/SelfCheck.java
+          if ($LASTEXITCODE -ne 0) { throw 'Check compilation failed' }
+          java -ea -cp 'target/checks;target/djlink-1.0.0.jar' local.djlink.SelfCheck
+          if ($LASTEXITCODE -ne 0) { throw 'Java checks failed' }
+          node --check src/main/resources/web/app.js
+          if ($LASTEXITCODE -ne 0) { throw 'JavaScript syntax failed' }
+          node src/test/motion-check.js
+          if ($LASTEXITCODE -ne 0) { throw 'Smoothing checks failed' }
+      - uses: actions/upload-artifact@v7.0.1
+        with:
+          name: DJLink-Windows
+          path: target/DJLink-Windows.zip
+          retention-days: 14
