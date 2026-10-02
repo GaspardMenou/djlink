@@ -32,7 +32,9 @@ java -Dorg.slf4j.simpleLogger.defaultLogLevel=warn -jar target/djlink-1.0.0.jar
 
 Le moteur Java et l’interface sont communs aux deux plateformes. Le lanceur Windows ouvre une fenêtre d’application Edge dédiée, avec son propre profil, sans barre d’adresse. Il ne ferme pas les autres fenêtres Edge. La version macOS utilise WebKit.
 
-Sur **Windows 10/11**, installe Python 3 et un JDK 17+ avec `javac`, `jlink` et `jpackage` dans PATH. Edge doit être installé. Puis, dans PowerShell :
+Pour le **PC de régie Windows 11 x64**, télécharge [DJLink-Windows.zip](https://github.com/GaspardMenou/djlink/releases/tag/v1.0.0-beta.1), extrais toute l’archive dans un dossier local puis lance **DJLink\DJLink.exe**. Java est inclus : aucun JDK ni Python à installer. Microsoft Edge doit être présent. Branche le PC sur le même switch que le XDJ-AZ et autorise l’application sur le réseau privé si le pare-feu le demande. Ferme les autres moniteurs PRO DJ LINK qui occupent les ports 50000–50002.
+
+Pour compiler toi-même sur **Windows 10/11**, installe Python 3 et un JDK 17+ avec `javac`, `jlink` et `jpackage` dans PATH. Puis, dans PowerShell :
 
 ```powershell
 ./build-windows.ps1
@@ -40,7 +42,7 @@ Sur **Windows 10/11**, installe Python 3 et un JDK 17+ avec `javac`, `jlink` et 
 
 Le résultat est **target/windows/DJLink/DJLink.exe** et **target/DJLink-Windows.zip**. Garde tout le dossier DJLink : l’EXE dépend de son runtime et de ses ressources, déjà intégrés. Il ne nécessite ni Python ni JDK sur le PC destinataire. Les logs sont dans `%LOCALAPPDATA%\DJLink\logs`.
 
-Le workflow **Windows app** construit aussi l’archive Windows et exécute les vérifications Java/JavaScript dans GitHub Actions. Le résultat est disponible dans ses artefacts. La compilation Java et le lissage sont vérifiés sur Mac. **La construction jpackage, le lancement Edge, le MIDI Windows et l’accès au lecteur doivent encore être validés sur un PC Windows.** Pour les sorties MIDI, choisis un port de l’interface ou un bus virtuel existant ; le pilote IAC est spécifique à macOS. Le pare-feu doit autoriser DJ Link sur le réseau local privé.
+Le workflow **Windows app** construit aussi l’archive Windows et exécute les vérifications Java/JavaScript dans GitHub Actions. Le résultat est disponible dans ses artefacts. La compilation, le packaging jpackage et les vérifications Java/JavaScript ont réussi sur le runner Windows x64 de GitHub. **Le lancement Edge, le MIDI Windows et l’accès au lecteur restent à valider sur le PC de régie.** Pour les sorties MIDI, choisis un port de l’interface ou un bus virtuel existant ; le pilote IAC est spécifique à macOS. Le pare-feu doit autoriser DJ Link sur le réseau local privé.
 
 ## Lumière
 
