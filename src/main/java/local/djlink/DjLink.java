@@ -104,6 +104,7 @@ public final class DjLink {
             last = now; sequence = counter; count++;
             return event;
         }
+        synchronized void pause() { lastBeat = 0; previousBeat = 0; }
         synchronized void observeBeat(long now, int beat, long expectedMs, boolean phaseReliable) {
             if (lastBeat > 0 && expectedMs > 0 && expectedMs < 3000) {
                 double gap = (now - lastBeat) / 1_000_000.0;
@@ -362,6 +363,7 @@ public final class DjLink {
                     if (lighting) lightingMode = true;
                     if (lightingMode && !lighting) return;
                     Map<String, Object> event = diagnostics.computeIfAbsent(cdj.getDeviceNumber(), n -> new NetworkStats()).observe(cdj.getTimestamp(), cdj.getPacketNumber());
+                    if (!cdj.isPlaying()) diagnostics.get(cdj.getDeviceNumber()).pause();
                     if (event != null) {
                         event.put("deck", cdj.getDeviceNumber()); event.put("timestamp", System.currentTimeMillis());
                         networkEvents.offer(event);

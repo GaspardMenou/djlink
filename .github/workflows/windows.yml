@@ -3,6 +3,11 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  PYTHONUTF8: 1
 permissions:
   contents: read
 jobs:

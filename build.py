@@ -89,7 +89,7 @@ def build():
                 raise ValueError(f'Le correctif ne correspond plus à {name}')
             destination = generated / name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text(source.replace(before, after))
+            destination.write_text(source.replace(before, after), encoding="utf-8")
     classes = ROOT / 'target/classes'
     if classes.exists():
         shutil.rmtree(classes)

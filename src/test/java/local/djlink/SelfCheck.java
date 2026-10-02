@@ -42,6 +42,9 @@ public final class SelfCheck {
         assert network.snapshot(t + 800_000_000L).get("beatPhaseSkipsEstimate").equals(1L);
         network.observeBeat(t + 1_600_000_000L, 1, 400, false);
         assert network.snapshot(t + 1_600_000_000L).get("beatPhaseSkipsEstimate").equals(1L) : "Do not infer beat loss across an unconfirmed loop";
+        network.pause();
+        network.observeBeat(t + 50_000_000_000L, 1, 400, true);
+        assert network.snapshot(t + 50_000_000_000L).get("lateBeats").equals(2L) : "A pause is not network loss";
         DjLink.NetworkStats unsupported = new DjLink.NetworkStats();
         for (int i = 0; i < 25; i++) unsupported.observe(t + i * 200_000_000L, 0);
         assert unsupported.snapshot(t + 5_000_000_000L).get("sequenceSkips") == null : "Do not invent loss without a sequence counter";
