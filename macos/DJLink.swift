@@ -28,7 +28,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
         window.minSize = NSSize(width: 640, height: 480)
         web = WKWebView(); web.navigationDelegate = self; web.uiDelegate = self
         web.configuration.preferences.isElementFullscreenEnabled = true
-        NSApp.applicationIconImage = NSImage(systemSymbolName: "waveform.path", accessibilityDescription: "DJ Link")
         window.contentView = web
         window.center(); window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
         web.loadHTMLString("<body style='background:#191626;color:#00cee3;font:24px system-ui;padding:40px'>DJ Link<br><p style='font-size:16px;color:#b3aabd'>Démarrage du moteur réseau…</p></body>", baseURL: nil)

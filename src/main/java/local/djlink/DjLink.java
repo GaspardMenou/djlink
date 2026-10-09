@@ -14,29 +14,47 @@ import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.LockSupport;
+import java.util.function.Function;
+import java.util.function.LongSupplier;
 
 public final class DjLink {
     static final Gson JSON = new GsonBuilder().serializeNulls().create();
     volatile String target = "";
+    volatile String sourceGeneration = UUID.randomUUID().toString();
+    final Object inputLock = new Object();
+    volatile boolean closed;
     volatile boolean lightingMode;
     boolean listenersRegistered;
     static final long STALE_MS = 2000;
     final ConcurrentMap<Integer, CdjStatus> statuses = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, TrackMetadata> knownMetadata = new ConcurrentHashMap<>();
-    final ConcurrentMap<Integer, WaveformDetail> requestedWaves = new ConcurrentHashMap<>();
+    record CachedWave(String generation, DataReference reference, Map<String, Object> payload) { }
+    record WaveRetry(String generation, DataReference reference, long after) { }
+    final Map<Integer, CachedWave> requestedWaves = new HashMap<>();
+    final Map<Integer, WaveRetry> waveRetries = new HashMap<>();
+    final Object waveformLock = new Object();
+    final Function<DataReference, WaveformDetail> waveformFetch;
+    final LongSupplier nanoTime;
     final ConcurrentMap<Integer, LoopWindow> loops = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, Beat> beats = new ConcurrentHashMap<>();
     final ConcurrentMap<Integer, Long> beatTimes = new ConcurrentHashMap<>();
+    final Map<Integer, Long> beatNotBefore = new HashMap<>();
     final AtomicLong received = new AtomicLong();
     volatile String lightingError = "";
     volatile String linkMessage = "Recherche du XDJ-AZ…";
     final ConcurrentMap<Integer, NetworkStats> diagnostics = new ConcurrentHashMap<>();
-    final ArrayBlockingQueue<Map<String, Object>> networkEvents = new ArrayBlockingQueue<>(256);
-    final Path logDirectory = Path.of(System.getProperty("djlink.dataDir", "data"));
+    final ArrayBlockingQueue<Map<String, Object>> networkEvents = new ArrayBlockingQueue<>(1024);
+    final AtomicLong captureDroppedPackets = new AtomicLong();
+    final Path logDirectory;
+    final Object logLock = new Object();
+    List<Map<String, Object>> pendingLogBatch = List.of();
+    long loggedCaptureDrops, pendingCaptureDrops, lastSummaryAt;
+    LocalDate cleanedLogDate;
     volatile long captureUntil;
     volatile String logError = "";
     volatile String outputError = "";
@@ -58,7 +76,17 @@ public final class DjLink {
         int oscPort = 9000;
     }
 
-    DjLink() throws SocketException { oscSocket = new DatagramSocket(); }
+    DjLink() throws SocketException {
+        this(Path.of(System.getProperty("djlink.dataDir", "data")), reference -> {
+            WaveformFinder finder = WaveformFinder.getInstance();
+            return finder.isRunning() ? finder.requestWaveformDetailFrom(reference) : null;
+        }, System::nanoTime);
+    }
+
+    DjLink(Path logs, Function<DataReference, WaveformDetail> fetch, LongSupplier time) throws SocketException {
+        logDirectory = logs; waveformFetch = fetch; nanoTime = time;
+        oscSocket = new DatagramSocket();
+    }
 
     static boolean fresh(DeviceUpdate update, long now) {
         return update != null && now - update.getTimestamp() < STALE_MS * 1_000_000L;
@@ -66,15 +94,23 @@ public final class DjLink {
 
     static boolean validTempo(double bpm) { return Double.isFinite(bpm) && bpm >= 20 && bpm <= 400; }
 
-    synchronized void discover() {
+    void discover() {
         if (!DeviceFinder.getInstance().isRunning()) return;
         List<String> addresses = DeviceFinder.getInstance().getCurrentDevices().stream()
             .filter(d -> d.getDeviceName().equalsIgnoreCase("XDJ-AZ"))
             .map(d -> d.getAddress().getHostAddress()).distinct().sorted().toList();
-        String next = addresses.contains(target) ? target : addresses.isEmpty() ? "" : addresses.get(0);
-        if (!next.equals(target)) {
-            stopClock(); statuses.clear(); diagnostics.clear(); requestedWaves.clear(); knownMetadata.clear(); loops.clear(); beats.clear(); beatTimes.clear(); target = next; lightingMode = false;
+        String current = target;
+        selectTarget(addresses.contains(current) ? current : addresses.isEmpty() ? "" : addresses.get(0));
+    }
+
+    void selectTarget(String next) {
+        synchronized (inputLock) {
+            if (next.equals(target)) return;
+            statuses.clear(); diagnostics.clear(); requestedWaves.clear(); waveRetries.clear();
+            knownMetadata.clear(); loops.clear(); beats.clear(); beatTimes.clear(); beatNotBefore.clear();
+            target = next; sourceGeneration = UUID.randomUUID().toString(); lightingMode = false;
         }
+        stopClock();
     }
 
     static final class NetworkStats {
@@ -133,7 +169,7 @@ public final class DjLink {
     }
 
     void capture(DeviceUpdate update, String kind) {
-        if (System.nanoTime() >= captureUntil) return;
+        if (nanoTime.getAsLong() >= captureUntil) return;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("event", "packet"); record.put("kind", kind); record.put("deck", update.getDeviceNumber());
         record.put("receivedNanos", update.getTimestamp()); record.put("timestamp", System.currentTimeMillis());
@@ -144,23 +180,66 @@ public final class DjLink {
             record.put("playing", status.isPlaying()); record.put("looping", status.isLooping());
             if (TimeFinder.getInstance().isRunning()) record.put("position", TimeFinder.getInstance().getTimeFor(update.getDeviceNumber()));
         }
-        networkEvents.offer(record);
+        if (!networkEvents.offer(record)) captureDroppedPackets.incrementAndGet();
     }
 
     void diagnosticsTick() {
-        try {
-            Files.createDirectories(logDirectory);
-            Path log = logDirectory.resolve("network-" + java.time.LocalDate.now() + ".jsonl");
-            if (Files.exists(log) && Files.size(log) > 10_000_000) Files.move(log, logDirectory.resolve("network-" + java.time.LocalDate.now() + "-previous.jsonl"), StandardCopyOption.REPLACE_EXISTING);
-            List<Map<String, Object>> entries = new ArrayList<>(); networkEvents.drainTo(entries);
-            for (int number = 1; number <= 4; number++) {
-                NetworkStats stats = diagnostics.get(number); if (stats == null) continue;
-                Map<String, Object> record = new LinkedHashMap<>(stats.snapshot(System.nanoTime()));
-                record.put("event", "summary"); record.put("deck", number); record.put("timestamp", System.currentTimeMillis()); entries.add(record);
+        diagnosticsTick(LocalDate.now(), nanoTime.getAsLong());
+    }
+
+    void pruneLogs(LocalDate today) throws IOException {
+        try (DirectoryStream<Path> files = Files.newDirectoryStream(logDirectory)) {
+            for (Path file : files) {
+                String name = file.getFileName().toString();
+                if (!Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)
+                    || !name.matches("network-\\d{4}-\\d{2}-\\d{2}(?:-previous)?\\.jsonl")) continue;
+                LocalDate date;
+                try { date = LocalDate.parse(name.substring(8, 18)); }
+                catch (java.time.DateTimeException ignored) { continue; }
+                if (date.isBefore(today.minusDays(29))) Files.delete(file);
             }
-            if (!entries.isEmpty()) Files.writeString(log, entries.stream().map(JSON::toJson).collect(java.util.stream.Collectors.joining("\n", "", "\n")), StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            logError = "";
-        } catch (IOException e) { logError = e.getMessage(); }
+        }
+    }
+
+    void diagnosticsTick(LocalDate today, long now) {
+        synchronized (logLock) {
+            try {
+                Files.createDirectories(logDirectory);
+                String cleanupError = "";
+                if (!today.equals(cleanedLogDate)) {
+                    try { pruneLogs(today); cleanedLogDate = today; }
+                    catch (IOException e) { cleanupError = "Nettoyage des logs : " + e.getMessage(); }
+                }
+                if (pendingLogBatch.isEmpty()) {
+                    List<Map<String, Object>> entries = new ArrayList<>(); networkEvents.drainTo(entries);
+                    pendingCaptureDrops = captureDroppedPackets.get();
+                    if (pendingCaptureDrops > loggedCaptureDrops) entries.add(Map.of("event", "capture_drop",
+                        "dropped", pendingCaptureDrops - loggedCaptureDrops, "total", pendingCaptureDrops,
+                        "timestamp", System.currentTimeMillis()));
+                    if (lastSummaryAt == 0 || now - lastSummaryAt >= 5_000_000_000L) {
+                        lastSummaryAt = now;
+                        for (int number = 1; number <= 4; number++) {
+                            NetworkStats stats = diagnostics.get(number); if (stats == null) continue;
+                            Map<String, Object> record = new LinkedHashMap<>(stats.snapshot(now));
+                            record.put("event", "summary"); record.put("deck", number);
+                            record.put("timestamp", System.currentTimeMillis()); entries.add(record);
+                        }
+                    }
+                    pendingLogBatch = entries;
+                }
+                if (!pendingLogBatch.isEmpty()) {
+                    Path log = logDirectory.resolve("network-" + today + ".jsonl");
+                    if (Files.exists(log) && Files.size(log) > 10_000_000)
+                        Files.move(log, logDirectory.resolve("network-" + today + "-previous.jsonl"), StandardCopyOption.REPLACE_EXISTING);
+                    Files.writeString(log, pendingLogBatch.stream().map(JSON::toJson)
+                        .collect(java.util.stream.Collectors.joining("\n", "", "\n")),
+                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+                    loggedCaptureDrops = pendingCaptureDrops;
+                    pendingLogBatch = List.of();
+                }
+                logError = cleanupError;
+            } catch (IOException e) { logError = e.getMessage(); }
+        }
     }
 
     // ponytail: whole-beat bounds inferred from two matching wraps; sub-beat/manual loops need exact hardware bounds.
@@ -195,6 +274,10 @@ public final class DjLink {
     }
 
     Map<String, Object> deck(int number, long now) {
+        synchronized (inputLock) { return deckSnapshot(number, now); }
+    }
+
+    private Map<String, Object> deckSnapshot(int number, long now) {
         Map<String, Object> d = new LinkedHashMap<>();
         d.put("number", number);
         NetworkStats stats = diagnostics.get(number);
@@ -213,11 +296,12 @@ public final class DjLink {
         d.put("playing", statusFresh ? status.isPlaying() : null);
         d.put("ended", statusFresh && status.isAtEnd());
         d.put("synced", statusFresh ? status.isSynced() : null);
-        double bpm = beatFresh ? beat.getEffectiveTempo() : statusFresh ? status.getEffectiveTempo() : 0;
+        double bpm = tempo(status, beat, now);
         d.put("bpm", validTempo(bpm) ? bpm : null);
         d.put("beat", beatFresh ? Integer.valueOf(beat.getBeatWithinBar()) : statusFresh ? Integer.valueOf(status.getBeatWithinBar()) : null);
         d.put("beatAt", beatFresh ? beat.getTimestamp() : null);
         d.put("trackId", statusFresh ? Integer.toUnsignedLong(status.getRekordboxId()) : null);
+        d.put("trackType", statusFresh ? status.getTrackType().toString() : null);
         d.put("source", statusFresh ? status.getTrackSourceSlot().toString() : null);
         d.put("sourcePlayer", statusFresh ? status.getTrackSourcePlayer() : null);
         d.put("pitch", statusFresh ? Util.pitchToPercentage(status.getPitch()) : null);
@@ -292,8 +376,9 @@ public final class DjLink {
         MetadataFinder finder = MetadataFinder.getInstance();
         if (!finder.isRunning()) return;
         for (int number = 1; number <= 4; number++) {
-            CdjStatus status = statuses.get(number);
-            if (!fresh(status, System.nanoTime()) || status.getRekordboxId() == 0) continue;
+            CdjStatus status; String generation;
+            synchronized (inputLock) { status = statuses.get(number); generation = sourceGeneration; }
+            if (!fresh(status, nanoTime.getAsLong()) || status.getRekordboxId() == 0) continue;
             try {
                 TrackMetadata metadata = finder.getLatestMetadataFor(number);
                 if (!matchesMetadata(status, metadata)
@@ -301,7 +386,10 @@ public final class DjLink {
                     // Empty replies are cached by Beat Link; retry on this worker, never on the UDP or HTTP thread.
                     metadata = finder.requestMetadataFrom(status);
                 }
-                if (matchesMetadata(statuses.get(number), metadata)) knownMetadata.put(number, metadata);
+                synchronized (inputLock) {
+                    if (generation.equals(sourceGeneration) && matchesMetadata(statuses.get(number), metadata))
+                        knownMetadata.put(number, metadata);
+                }
             } catch (Exception e) {
                 networkEvents.offer(Map.of("event", "metadata_retry", "deck", number,
                     "timestamp", System.currentTimeMillis(), "error", e.getClass().getSimpleName()));
@@ -309,39 +397,63 @@ public final class DjLink {
         }
     }
 
+    static DataReference trackReference(CdjStatus status) {
+        return status == null || status.getRekordboxId() == 0 ? null : new DataReference(
+            status.getTrackSourcePlayer(), status.getTrackSourceSlot(), status.getRekordboxId(), status.getTrackType());
+    }
+
+    static double tempo(CdjStatus status, Beat beat, long now) {
+        double bpm = fresh(beat, now) ? beat.getEffectiveTempo() : fresh(status, now) ? status.getEffectiveTempo() : 0;
+        return validTempo(bpm) ? bpm : 0;
+    }
+
     int selectedDeck(long now) {
-        if (settings.deck > 0) return settings.deck;
+        synchronized (inputLock) { return selectedDeck(settings.deck, now); }
+    }
+
+    private int selectedDeck(int configured, long now) {
+        if (configured > 0) return configured;
         return statuses.entrySet().stream()
             .filter(e -> fresh(e.getValue(), now) && e.getValue().isTempoMaster())
             .map(Map.Entry::getKey).min(Integer::compareTo).orElse(0);
     }
 
-    double outputTempo(long now) {
-        int n = selectedDeck(now);
-        CdjStatus status = statuses.get(n);
-        if (!fresh(status, now) || !status.isPlaying()) return 0;
-        Beat beat = beats.get(n);
-        double tempo = fresh(beat, now) ? beat.getEffectiveTempo() : status.getEffectiveTempo();
-        return validTempo(tempo) ? tempo : 0;
+    record OutputSource(int deck, DataReference track, String generation, double bpm, long beatTime) { }
+
+    OutputSource outputSource(long now, Settings cfg) {
+        synchronized (inputLock) {
+            int n = selectedDeck(cfg.deck, now);
+            CdjStatus status = statuses.get(n);
+            DataReference track = trackReference(status);
+            double bpm = fresh(status, now) && status.isPlaying() && track != null ? tempo(status, beats.get(n), now) : 0;
+            return new OutputSource(n, track, sourceGeneration, bpm, beatTimes.getOrDefault(n, 0L));
+        }
     }
+
+    double outputTempo(long now) { return outputSource(now, settings).bpm(); }
 
     Map<String, Object> state() {
         discover();
-        long now = System.nanoTime();
+        long now = nanoTime.getAsLong();
+        Settings cfg = settings;
         Map<String, Object> s = new LinkedHashMap<>();
         List<Map<String, Object>> decks = new ArrayList<>();
-        for (int i = 1; i <= 4; i++) decks.add(deck(i, now));
-        s.put("target", target);
-        s.put("lightingMode", lightingMode);
-        s.put("now", System.currentTimeMillis());
-        s.put("decks", decks);
-        s.put("selectedDeck", selectedDeck(now));
-        s.put("outputBpm", outputTempo(now) > 0 ? outputTempo(now) : null);
+        synchronized (inputLock) {
+            for (int i = 1; i <= 4; i++) decks.add(deckSnapshot(i, now));
+            s.put("target", target);
+            s.put("sourceGeneration", sourceGeneration);
+            s.put("lightingMode", lightingMode);
+            s.put("now", System.currentTimeMillis());
+            s.put("decks", decks);
+            OutputSource source = outputSource(now, cfg);
+            s.put("selectedDeck", source.deck());
+            s.put("outputBpm", source.bpm() > 0 ? source.bpm() : null);
+        }
         s.put("connected", decks.stream().anyMatch(d -> Boolean.TRUE.equals(d.get("statusAvailable"))));
         s.put("linkMessage", linkMessage);
         s.put("lightingError", lightingError);
         s.put("received", received.get());
-        s.put("settings", settings);
+        s.put("settings", cfg);
         synchronized (this) {
             s.put("sentClock", sentClock); s.put("sentBeat", sentBeat); s.put("sentOsc", sentOsc);
             s.put("midiActive", midiReceiver != null);
@@ -350,8 +462,70 @@ public final class DjLink {
         s.put("outputError", outputError);
         s.put("logDirectory", logDirectory.toAbsolutePath().toString());
         s.put("logError", logError);
-        s.put("captureRemaining", Math.max(0, (captureUntil - System.nanoTime()) / 1_000_000_000L));
+        s.put("captureRemaining", Math.max(0, (captureUntil - nanoTime.getAsLong()) / 1_000_000_000L));
+        s.put("captureDroppedPackets", captureDroppedPackets.get());
         return s;
+    }
+
+    void acceptStatus(CdjStatus cdj) {
+        if (!cdj.getAddress().getHostAddress().equals(target) || cdj.getDeviceNumber() < 1 || cdj.getDeviceNumber() > 4) return;
+        capture(cdj, "status");
+        synchronized (inputLock) {
+            if (!cdj.getAddress().getHostAddress().equals(target)) return;
+            int n = cdj.getDeviceNumber();
+            boolean lighting = cdj.getPacketBytes()[10] == 0x10;
+            if (lighting) lightingMode = true;
+            if (lightingMode && !lighting) return;
+            NetworkStats stats = diagnostics.computeIfAbsent(n, key -> new NetworkStats());
+            Map<String, Object> event = stats.observe(cdj.getTimestamp(), cdj.getPacketNumber());
+            if (!cdj.isPlaying()) stats.pause();
+            if (event != null) {
+                event.put("deck", n); event.put("timestamp", System.currentTimeMillis()); networkEvents.offer(event);
+            }
+            CdjStatus previous = statuses.get(n);
+            DataReference reference = trackReference(cdj);
+            if (reference == null || previous == null || !Objects.equals(reference, trackReference(previous))) {
+                beats.remove(n); beatTimes.remove(n); beatNotBefore.put(n, cdj.getTimestamp());
+                knownMetadata.remove(n); requestedWaves.remove(n); waveRetries.remove(n); loops.remove(n);
+            }
+            statuses.put(n, cdj);
+            LoopWindow window = loops.computeIfAbsent(n, key -> new LoopWindow());
+            String key = Objects.toString(reference, "");
+            if (previous != null && !fresh(previous, cdj.getTimestamp())) window.observe(key, false, false, 0);
+            window.observe(key, cdj.isLooping(), cdj.isPlayingBackwards(), cdj.getBeatNumber());
+            received.incrementAndGet();
+        }
+    }
+
+    static long beatInterval(Beat beat) {
+        return validTempo(beat.getEffectiveTempo()) ? Math.round(60_000.0 / beat.getEffectiveTempo()) : 0;
+    }
+
+    void acceptBeat(Beat beat) {
+        int n = beat.getDeviceNumber();
+        if (!beat.getAddress().getHostAddress().equals(target) || n < 1 || n > 4) return;
+        capture(beat, "beat");
+        synchronized (inputLock) {
+            if (!beat.getAddress().getHostAddress().equals(target)
+                || beat.getTimestamp() < beatNotBefore.getOrDefault(n, Long.MIN_VALUE)) return;
+            CdjStatus source = statuses.get(n);
+            LoopWindow loop = loops.get(n);
+            boolean phaseReliable = source != null && (!source.isLooping()
+                || (source.canReportLooping() && source.getActiveLoopBeats() > 0 && source.getActiveLoopBeats() % 4 == 0)
+                || (loop != null && loop.wholeBars()));
+            diagnostics.computeIfAbsent(n, key -> new NetworkStats())
+                .observeBeat(beat.getTimestamp(), beat.getBeatWithinBar(), beatInterval(beat), phaseReliable);
+            beats.put(n, beat); beatTimes.put(n, beat.getTimestamp()); received.incrementAndGet();
+        }
+        synchronized (this) {
+            OutputSource source = outputSource(nanoTime.getAsLong(), settings);
+            if (n != source.deck() || source.bpm() <= 0) return;
+            if (midiReceiver != null && !settings.midiMode.equals("clock")) {
+                midi(ShortMessage.NOTE_ON, settings.channel - 1, settings.note, 127);
+                midi(ShortMessage.NOTE_OFF, settings.channel - 1, settings.note, 0); sentBeat++;
+            }
+        }
+        if (settings.osc) sendOsc("/djlink/beat", beat.getBeatWithinBar());
     }
 
     void connect() {
@@ -360,62 +534,18 @@ public final class DjLink {
             while (target.isEmpty()) { discover(); Thread.sleep(250); }
             if (!listenersRegistered) {
             MetadataFinder.getInstance().addTrackMetadataListener(update -> {
-                if (matchesMetadata(statuses.get(update.player), update.metadata)) knownMetadata.put(update.player, update.metadata);
-            });
-            BeatFinder.getInstance().addBeatListener(beat -> {
-                if (!beat.getAddress().getHostAddress().equals(target) || beat.getDeviceNumber() > 4) return;
-                capture(beat, "beat");
-                CdjStatus source = statuses.get(beat.getDeviceNumber());
-                LoopWindow loop = loops.get(beat.getDeviceNumber());
-                boolean phaseReliable = source != null && (!source.isLooping()
-                    || (source.canReportLooping() && source.getActiveLoopBeats() > 0 && source.getActiveLoopBeats() % 4 == 0)
-                    || (loop != null && loop.wholeBars()));
-                diagnostics.computeIfAbsent(beat.getDeviceNumber(), n -> new NetworkStats())
-                    .observeBeat(beat.getTimestamp(), beat.getBeatWithinBar(), beat.getNextBeat(), phaseReliable);
-                beats.put(beat.getDeviceNumber(), beat);
-                beatTimes.put(beat.getDeviceNumber(), System.nanoTime());
-                received.incrementAndGet();
-                int selected = selectedDeck(System.nanoTime());
-                if (beat.getDeviceNumber() == selected && outputTempo(System.nanoTime()) > 0) {
-                    synchronized (this) {
-                        if (midiReceiver != null && !settings.midiMode.equals("clock")) {
-                            midi(ShortMessage.NOTE_ON, settings.channel - 1, settings.note, 127);
-                            midi(ShortMessage.NOTE_OFF, settings.channel - 1, settings.note, 0);
-                            sentBeat++;
-                        }
-                    }
-                    if (settings.osc) sendOsc("/djlink/beat", beat.getBeatWithinBar());
+                synchronized (inputLock) {
+                    if (matchesMetadata(statuses.get(update.player), update.metadata)) knownMetadata.put(update.player, update.metadata);
                 }
             });
+            BeatFinder.getInstance().addBeatListener(this::acceptBeat);
             VirtualCdj.getInstance().setDeviceName("DJ Link Monitor");
             Set<Integer> occupied = new HashSet<>();
             DeviceFinder.getInstance().getCurrentDevices().forEach(d -> occupied.add(d.getDeviceNumber()));
             if (!occupied.contains(5)) VirtualCdj.getInstance().setDeviceNumber((byte)5);
             else if (!occupied.contains(6)) VirtualCdj.getInstance().setDeviceNumber((byte)6);
             VirtualCdj.getInstance().addUpdateListener(update -> {
-                if (update instanceof CdjStatus cdj && cdj.getAddress().getHostAddress().equals(target)
-                    && cdj.getDeviceNumber() >= 1 && cdj.getDeviceNumber() <= 4) {
-                    capture(cdj, "status");
-                    boolean lighting = cdj.getPacketBytes()[10] == 0x10;
-                    if (lighting) lightingMode = true;
-                    if (lightingMode && !lighting) return;
-                    Map<String, Object> event = diagnostics.computeIfAbsent(cdj.getDeviceNumber(), n -> new NetworkStats()).observe(cdj.getTimestamp(), cdj.getPacketNumber());
-                    if (!cdj.isPlaying()) diagnostics.get(cdj.getDeviceNumber()).pause();
-                    if (event != null) {
-                        event.put("deck", cdj.getDeviceNumber()); event.put("timestamp", System.currentTimeMillis());
-                        networkEvents.offer(event);
-                    }
-                    CdjStatus previous = statuses.put(cdj.getDeviceNumber(), cdj);
-                    if (cdj.getRekordboxId() == 0 || (previous != null && (previous.getRekordboxId() != cdj.getRekordboxId()
-                        || previous.getTrackSourcePlayer() != cdj.getTrackSourcePlayer() || previous.getTrackSourceSlot() != cdj.getTrackSourceSlot()))) {
-                        knownMetadata.remove(cdj.getDeviceNumber()); requestedWaves.remove(cdj.getDeviceNumber());
-                    }
-                    LoopWindow window = loops.computeIfAbsent(cdj.getDeviceNumber(), n -> new LoopWindow());
-                    String key = cdj.getRekordboxId() + ":" + cdj.getTrackSourcePlayer() + ":" + cdj.getTrackSourceSlot();
-                    if (previous != null && !fresh(previous, cdj.getTimestamp())) window.observe(key, false, false, 0);
-                    window.observe(key, cdj.isLooping(), cdj.isPlayingBackwards(), cdj.getBeatNumber());
-                    received.incrementAndGet();
-                }
+                if (update instanceof CdjStatus cdj) acceptStatus(cdj);
             });
             listenersRegistered = true;
             }
@@ -535,36 +665,28 @@ public final class DjLink {
         clockRunning = false;
     }
 
+    synchronized long clockStep(ClockSchedule schedule, long now) {
+        OutputSource source = outputSource(now, settings);
+        if (source.bpm() <= 0 || midiReceiver == null || settings.midiMode.equals("tap")) {
+            stopClock(); schedule.reset(); return 0;
+        }
+        OutputSource previous = schedule.source;
+        if (!clockRunning || previous == null || source.deck() != previous.deck()
+            || !source.generation().equals(previous.generation()) || !Objects.equals(source.track(), previous.track())) {
+            stopClock(); schedule.reset(); midi(ShortMessage.START, 0, 0, 0); clockRunning = true;
+        }
+        schedule.source = source;
+        if (schedule.due(now, source.bpm(), source.beatTime())) {
+            midi(ShortMessage.TIMING_CLOCK, 0, 0, 0); sentClock++;
+        }
+        return schedule.next;
+    }
+
     void clockLoop() {
-        long next = 0, anchor = 0;
-        int previousDeck = 0;
-        while (true) {
-            double bpm = outputTempo(System.nanoTime());
-            int selected = selectedDeck(System.nanoTime());
-            long now = System.nanoTime();
-            synchronized (this) {
-                if (bpm <= 0 || midiReceiver == null || settings.midiMode.equals("tap")) {
-                    stopClock(); next = 0; anchor = 0;
-                } else {
-                    long period = Math.round(60_000_000_000.0 / bpm / 24);
-                    if (!clockRunning || selected != previousDeck) {
-                        stopClock(); midi(ShortMessage.START, 0, 0, 0);
-                        clockRunning = true; next = now;
-                    }
-                    long beatTime = beatTimes.getOrDefault(selected, 0L);
-                    if (beatTime != anchor && now - beatTime < period * 24) {
-                        anchor = beatTime;
-                        next = beatTime + Math.max(0, (now - beatTime + period - 1) / period) * period;
-                    }
-                    if (now >= next) {
-                        midi(ShortMessage.TIMING_CLOCK, 0, 0, 0); sentClock++;
-                        // Never burst overdue clocks after an OS scheduling pause.
-                        next = Math.max(next + period, now + period);
-                    }
-                }
-            }
-            previousDeck = selected;
-            LockSupport.parkNanos(next == 0 ? 5_000_000 : Math.min(5_000_000, Math.max(100_000, next - System.nanoTime())));
+        ClockSchedule schedule = new ClockSchedule();
+        while (!closed && !Thread.currentThread().isInterrupted()) {
+            long next = clockStep(schedule, nanoTime.getAsLong());
+            LockSupport.parkNanos(next == 0 ? 5_000_000 : Math.min(5_000_000, Math.max(100_000, next - nanoTime.getAsLong())));
         }
     }
 
@@ -593,27 +715,59 @@ public final class DjLink {
     void oscTick() {
         discover();
         if (!settings.osc) return;
-        double bpm = outputTempo(System.nanoTime());
-        sendOsc("/djlink/playing", bpm > 0 ? 1 : 0);
-        sendOsc("/djlink/bpm", (float) bpm);
-        sendOsc("/djlink/deck", selectedDeck(System.nanoTime()));
+        OutputSource source = outputSource(nanoTime.getAsLong(), settings);
+        sendOsc("/djlink/playing", source.bpm() > 0 ? 1 : 0);
+        sendOsc("/djlink/bpm", (float) source.bpm());
+        sendOsc("/djlink/deck", source.deck());
+    }
+
+    void waveformTick() {
+        synchronized (waveformLock) {
+            if (closed) return;
+            int number = 0; DataReference reference = null; String generation = "";
+            synchronized (inputLock) {
+                long now = nanoTime.getAsLong();
+                for (int n = 1; n <= 4; n++) {
+                    CdjStatus status = statuses.get(n);
+                    DataReference track = trackReference(status);
+                    if (!fresh(status, now) || track == null) continue;
+                    CachedWave cache = requestedWaves.get(n);
+                    if (cache != null && cache.generation().equals(sourceGeneration) && cache.reference().equals(track)) continue;
+                    WaveRetry retry = waveRetries.get(n);
+                    if (retry != null && retry.generation().equals(sourceGeneration) && retry.reference().equals(track) && now < retry.after()) continue;
+                    number = n; reference = track; generation = sourceGeneration; break;
+                }
+            }
+            if (number == 0) return;
+            Map<String, Object> payload = null;
+            try {
+                WaveformDetail wave = waveformFetch.apply(reference);
+                if (wave != null && wave.dataReference.equals(reference)) payload = wavePayload(wave, generation);
+            } catch (RuntimeException e) {
+                networkEvents.offer(Map.of("event", "waveform_retry", "deck", number,
+                    "timestamp", System.currentTimeMillis(), "error", e.getClass().getSimpleName()));
+            }
+            synchronized (inputLock) {
+                if (closed || !generation.equals(sourceGeneration) || !reference.equals(trackReference(statuses.get(number)))) return;
+                if (payload != null) {
+                    requestedWaves.put(number, new CachedWave(generation, reference, payload)); waveRetries.remove(number);
+                } else waveRetries.put(number, new WaveRetry(generation, reference, nanoTime.getAsLong() + 3_000_000_000L));
+            }
+        }
     }
 
     Map<String, Object> waveform(int number) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        result.put("available", false);
-        CdjStatus status = statuses.get(number);
-        if (!fresh(status, System.nanoTime()) || !WaveformFinder.getInstance().isRunning()) return result;
-        WaveformDetail w = WaveformFinder.getInstance().getLatestDetailFor(number);
-        DataReference reference = new DataReference(status.getTrackSourcePlayer(), status.getTrackSourceSlot(), status.getRekordboxId(), status.getTrackType());
-        if (w == null || !w.dataReference.equals(reference)) w = requestedWaves.get(number);
-        if ((w == null || !w.dataReference.equals(reference)) && status.getRekordboxId() != 0) {
-            // Retry a request missed during discovery instead of waiting for the DJ to reload the track.
-            w = WaveformFinder.getInstance().requestWaveformDetailFrom(reference);
-            if (w != null) requestedWaves.put(number, w);
+        synchronized (inputLock) {
+            CdjStatus status = statuses.get(number);
+            CachedWave wave = requestedWaves.get(number);
+            if (fresh(status, nanoTime.getAsLong()) && wave != null && wave.generation().equals(sourceGeneration)
+                && wave.reference().equals(trackReference(status))) return wave.payload();
+            return Map.of("available", false, "sourceGeneration", sourceGeneration);
         }
-        if (w == null || w.dataReference.rekordboxId != status.getRekordboxId()
-            || w.dataReference.player != status.getTrackSourcePlayer() || w.dataReference.slot != status.getTrackSourceSlot()) return result;
+    }
+
+    static Map<String, Object> wavePayload(WaveformDetail w, String generation) {
+        Map<String, Object> result = new LinkedHashMap<>();
         int frames = w.getFrameCount();
         List<int[]> samples = new ArrayList<>();
         // ponytail: cap the browser payload at 12,000 columns; request smaller windows if finer zoom is needed.
@@ -628,10 +782,12 @@ public final class DjLink {
             java.awt.Color color = w.segmentColor(i, 1);
             samples.add(new int[]{height, color.getRed(), color.getGreen(), color.getBlue()});
         }
-        result.put("available", true); result.put("trackId", Integer.toUnsignedLong(status.getRekordboxId()));
-        result.put("sourcePlayer", status.getTrackSourcePlayer()); result.put("sourceSlot", status.getTrackSourceSlot().toString());
+        result.put("available", true); result.put("sourceGeneration", generation);
+        result.put("trackId", Integer.toUnsignedLong(w.dataReference.rekordboxId));
+        result.put("trackType", w.dataReference.trackType.toString());
+        result.put("sourcePlayer", w.dataReference.player); result.put("sourceSlot", w.dataReference.slot.toString());
         result.put("duration", w.getTotalTime()); result.put("samples", samples);
-        return result;
+        return Collections.unmodifiableMap(result);
     }
 
     static void reply(HttpExchange e, int code, String type, byte[] bytes) throws IOException {
@@ -667,7 +823,7 @@ public final class DjLink {
                     com.google.gson.JsonObject request = JSON.fromJson(new String(body, StandardCharsets.UTF_8), com.google.gson.JsonObject.class);
                     int seconds = request.get("seconds").getAsInt();
                     if (seconds < 5 || seconds > 60) throw new IllegalArgumentException("Capture : 5 à 60 secondes.");
-                    captureUntil = System.nanoTime() + seconds * 1_000_000_000L;
+                    captureUntil = nanoTime.getAsLong() + seconds * 1_000_000_000L;
                     json(e, 200, Map.of("seconds", seconds)); return;
                 }
                 configure(JSON.fromJson(new String(body, StandardCharsets.UTF_8), Settings.class));
@@ -678,18 +834,18 @@ public final class DjLink {
             switch (path) {
                 case "/api/state" -> {
                     Map<String, Object> data = state();
-                    if (!e.getRemoteAddress().getAddress().isLoopbackAddress()) { data.remove("logDirectory"); data.remove("logError"); data.remove("captureRemaining"); }
+                    if (!e.getRemoteAddress().getAddress().isLoopbackAddress()) { data.remove("logDirectory"); data.remove("logError"); data.remove("captureRemaining"); data.remove("captureDroppedPackets"); }
                     json(e, 200, data);
                 }
                 case "/api/midi" -> json(e, 200, midiPorts());
                 case "/api/bpm" -> {
-                    long now = System.nanoTime(); double bpm = outputTempo(now);
+                    long now = nanoTime.getAsLong(); OutputSource source = outputSource(now, settings); double bpm = source.bpm();
                     Map<String, Object> data = new LinkedHashMap<>();
                     data.put("bpm", bpm > 0 ? bpm : null);
-                    data.put("playing", bpm > 0); data.put("deck", selectedDeck(now)); data.put("timestamp", System.currentTimeMillis());
+                    data.put("playing", bpm > 0); data.put("deck", source.deck()); data.put("timestamp", System.currentTimeMillis());
                     json(e, 200, data);
                 }
-                case "/", "/app.js", "/motion.js", "/style.css" -> {
+                case "/", "/app.js", "/motion.js", "/waves.js", "/style.css" -> {
                     String asset = path.equals("/") ? "index.html" : path.substring(1);
                     try (InputStream in = getClass().getResourceAsStream("/web/" + asset)) {
                         if (in == null) { json(e, 404, Map.of("error", "Fichier absent.")); return; }
@@ -720,11 +876,21 @@ public final class DjLink {
             }
         }, "pro-dj-link"); connection.setDaemon(true); connection.start();
         Thread clock = new Thread(app::clockLoop, "midi-clock"); clock.setDaemon(true); clock.setPriority(Thread.MAX_PRIORITY); clock.start();
-        Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(app::oscTick, 0, 200, TimeUnit.MILLISECONDS);
-        Executors.newSingleThreadScheduledExecutor().scheduleWithFixedDelay(app::metadataTick, 1, 3, TimeUnit.SECONDS);
-        Executors.newSingleThreadScheduledExecutor().scheduleAtFixedRate(app::diagnosticsTick, 5, 5, TimeUnit.SECONDS);
+        ScheduledExecutorService oscWorker = Executors.newSingleThreadScheduledExecutor();
+        ScheduledExecutorService metadataWorker = Executors.newSingleThreadScheduledExecutor();
+        ScheduledExecutorService waveWorker = Executors.newSingleThreadScheduledExecutor();
+        ScheduledExecutorService logWorker = Executors.newSingleThreadScheduledExecutor();
+        oscWorker.scheduleAtFixedRate(app::oscTick, 0, 200, TimeUnit.MILLISECONDS);
+        metadataWorker.scheduleWithFixedDelay(app::metadataTick, 1, 3, TimeUnit.SECONDS);
+        waveWorker.scheduleWithFixedDelay(app::waveformTick, 0, 250, TimeUnit.MILLISECONDS);
+        logWorker.scheduleWithFixedDelay(app::diagnosticsTick, 0, 250, TimeUnit.MILLISECONDS);
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            app.closed = true;
             app.stopClock();
+            oscWorker.shutdownNow(); metadataWorker.shutdownNow(); waveWorker.shutdownNow();
+            logWorker.execute(app::diagnosticsTick); logWorker.shutdown();
+            try { logWorker.awaitTermination(500, TimeUnit.MILLISECONDS); }
+            catch (InterruptedException e) { Thread.currentThread().interrupt(); }
             synchronized (app) {
                 if (app.midiReceiver != null) app.midiReceiver.close();
                 if (app.midiDevice != null) app.midiDevice.close();

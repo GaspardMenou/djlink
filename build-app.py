@@ -20,6 +20,7 @@ if not runtime.exists():
                     'java.base,java.desktop,java.logging,java.sql,java.naming,java.net.http,jdk.httpserver,jdk.unsupported',
                     '--strip-debug', '--no-header-files', '--no-man-pages', '--output', str(runtime)], check=True)
 shutil.copyfile(ROOT / 'target/djlink-1.0.0.jar', resources / 'djlink.jar')
+shutil.copyfile(ROOT / 'assets/DJLink.icns', resources / 'DJLink.icns')
 shutil.copyfile(ROOT / 'THIRD_PARTY.md', resources / 'THIRD_PARTY.md')
 if (ROOT / 'LICENSE').exists(): shutil.copyfile(ROOT / 'LICENSE', resources / 'LICENSE')
 subprocess.run(['xcrun', 'swiftc', '-swift-version', '6', '-default-isolation', 'MainActor',
@@ -28,6 +29,7 @@ subprocess.run(['xcrun', 'swiftc', '-swift-version', '6', '-default-isolation', 
 with (APP / 'Info.plist').open('wb') as out:
     plistlib.dump({'CFBundleName':'DJ Link', 'CFBundleDisplayName':'DJ Link',
                   'CFBundleExecutable':'DJLink', 'CFBundleIdentifier':'local.djlink.monitor',
+                  'CFBundleIconFile':'DJLink.icns',
                   'CFBundleVersion':'1', 'CFBundleShortVersionString':'1.0.0',
                   'CFBundlePackageType':'APPL', 'LSMinimumSystemVersion':'13.0', 'NSHighResolutionCapable':True,
                   'NSLocalNetworkUsageDescription':'Détecter le XDJ-AZ et recevoir les états PRO DJ LINK sur le réseau local.',

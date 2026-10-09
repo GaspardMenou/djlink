@@ -107,6 +107,7 @@ public final class SelfCheck {
             catch (IllegalArgumentException expected) { }
             assert app.deck(4, System.nanoTime()).get("bpm") == null : "Unseen deck must be empty";
         } finally { app.oscSocket.close(); }
+        RegressionCheck.run();
         System.out.println("OK — AZ slot 7, BPM, stale/pause handling, OSC encoding, input validation, metadata recovery and track matching.");
     }
 }

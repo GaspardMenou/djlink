@@ -2,7 +2,7 @@ const $ = id => document.getElementById(id);
 const colors = ['#00cee3', '#a5adff', '#dd87eb', '#6adbc1'];
 let state, initialized = false, updating = false, receivedAt = performance.now(), transportOnline = false;
 const motions = new Map(Array.from({length:4}, (_, i) => [i + 1, new DeckMotion()]));
-const waves = new Map(), wavePending = new Set(), waveRetry = new Map();
+const waveCache = new WaveCache(), waves = waveCache.waves;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
 const bpm = value => value == null ? '—' : value.toFixed(1);
 const zoomSeconds = () => 32 / 2 ** Number($('wave-zoom').value);
@@ -47,11 +47,13 @@ function message(text, error = false) {
   $('form-message').textContent = text; $('form-message').classList.toggle('error', error);
 }
 function render(s) {
-  const previous = state;
+  const changedSource = waveCache.setGeneration(s.sourceGeneration);
+  const previous = changedSource ? null : state;
+  if (changedSource) for (let n = 1; n <= 4; n++) motions.set(n, new DeckMotion());
   receivedAt = performance.now(); transportOnline = true;
   for (const d of s.decks) {
     const last = previous?.decks.find(p => p.number === d.number);
-    if (!d.statusAvailable && last) for (const key of ['trackId','source','sourcePlayer','title','artist','duration','key','pitch','cues','loopStart','loopEnd','loopBeats','loopInferred','looping']) d[key] = last[key];
+    if (!d.statusAvailable && last) for (const key of ['trackId','trackType','source','sourcePlayer','title','artist','duration','key','pitch','cues','loopStart','loopEnd','loopBeats','loopInferred','looping']) d[key] = last[key];
     motions.get(d.number).sample(d, receivedAt);
   }
   state = s;
@@ -62,6 +64,7 @@ function render(s) {
   $('network-summary').textContent = `${s.lightingError ? `Erreur d’envoi : ${s.lightingError} · ` : ''}${s.connected ? 'Signal reçu' : 'Signal en attente'} · lissage ${$('smoothing').selectedOptions[0].textContent} · extrapolation limitée à 1 seconde.`;
   $('network-rows').innerHTML = s.decks.map(d => { const n = d.network; return `<tr><th>${d.number}</th>${n ? `<td>${n.ageMs} ms</td><td>${n.intervalMs} ms</td><td>${n.jitterMs} ms</td><td>${n.maxGapMs} ms</td><td>${n.latePackets}</td><td>${n.sequenceAvailable ? n.sequenceSkips : 'Non disponible'}</td><td>${n.beatCount ? `${n.beatMaxGapMs} ms` : '—'}</td><td>${n.lateBeats}</td><td>${n.beatPhaseSkipsEstimate}</td>` : '<td colspan="9">Aucun état reçu</td>'}</tr>`; }).join('');
   $('network-log-path').textContent = s.logError ? `Erreur de log : ${s.logError}` : s.logDirectory ? `Logs locaux : ${s.logDirectory}` : 'Consulte les logs depuis l’application sur le PC serveur.';
+  if (s.captureDroppedPackets != null) $('network-log-path').textContent += ` · Capture : ${s.captureDroppedPackets} paquets non enregistrés depuis le démarrage du moteur.`;
   const online = s.decks.some(d => d.online);
   $('led').classList.toggle('online', s.connected);
   $('connection').textContent = s.connected ? 'XDJ-AZ connecté' : online ? 'XDJ-AZ détecté' : 'Recherche du XDJ-AZ';
@@ -183,23 +186,7 @@ function formatTime(ms) {
   const seconds = Math.floor(ms / 1000);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 }
-function trackKey(d) { return `${d.trackId}:${d.sourcePlayer}:${d.source}`; }
-async function loadWave(d) {
-  const key = trackKey(d), previous = waves.get(d.number);
-  if (!d.statusAvailable) return;
-  if (!d.trackId) { waves.delete(d.number); return; }
-  if (previous?.key === key || wavePending.has(d.number) || (waveRetry.get(`${d.number}:${key}`) || 0) > performance.now()) return;
-  waves.delete(d.number); wavePending.add(d.number);
-  try {
-    const response = await fetch(`/api/waveform/${d.number}`, {signal:AbortSignal.timeout(5000)});
-    if (!response.ok) throw new Error();
-    const data = await response.json();
-    const current = state?.decks.find(deck => deck.number === d.number);
-    if (data.available && current && trackKey(current) === key && data.trackId === d.trackId && data.sourcePlayer === d.sourcePlayer && data.sourceSlot === d.source) waves.set(d.number, {...data, key});
-    else waveRetry.set(`${d.number}:${key}`, performance.now() + 3000);
-  } catch { waveRetry.set(`${d.number}:${key}`, performance.now() + 5000); }
-  finally { wavePending.delete(d.number); }
-}
+function loadWave(d) { return waveCache.load(d); }
 function drawWave(canvas, wave, d, position, zoom) {
   const ratio = Math.min(devicePixelRatio || 1, 2), width = Math.round(canvas.clientWidth * ratio), height = Math.round(canvas.clientHeight * ratio);
   if (!width || !height) return;
