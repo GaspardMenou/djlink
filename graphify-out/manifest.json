@@ -1,0 +1,134 @@
+{
+  ".impeccable/config.json": {
+    "mtime": 1790974136.5380554,
+    "seen": 1792054558.427553,
+    "ast_hash": "0355ec677694e919425ffa58cb777cbe",
+    "semantic_hash": "0355ec677694e919425ffa58cb777cbe"
+  },
+  "build-app.py": {
+    "mtime": 1791558304.228859,
+    "seen": 1792054558.4275599,
+    "ast_hash": "15e57e15ac9284aa83b77862469088dc",
+    "semantic_hash": "15e57e15ac9284aa83b77862469088dc"
+  },
+  "build-windows.ps1": {
+    "mtime": 1791558304.2606752,
+    "seen": 1792054558.427563,
+    "ast_hash": "1136c3b41ad7c59102775b542da5a474",
+    "semantic_hash": "1136c3b41ad7c59102775b542da5a474"
+  },
+  "build.py": {
+    "mtime": 1790975083.6397774,
+    "seen": 1792054558.4275641,
+    "ast_hash": "3e5aad6a3220af714ec8905afbff235c",
+    "semantic_hash": "3e5aad6a3220af714ec8905afbff235c"
+  },
+  "check.sh": {
+    "mtime": 1791552387.6131234,
+    "seen": 1792054558.427565,
+    "ast_hash": "2bf0e84556e6c17fc93747cecc7e0b16",
+    "semantic_hash": "2bf0e84556e6c17fc93747cecc7e0b16"
+  },
+  "macos/DJLink.swift": {
+    "mtime": 1791558304.2460382,
+    "seen": 1792054558.427566,
+    "ast_hash": "c02d4aaa9deaf1a20efbaab5bccfd329",
+    "semantic_hash": "c02d4aaa9deaf1a20efbaab5bccfd329"
+  },
+  "src/main/java/local/djlink/ClockSchedule.java": {
+    "mtime": 1791551929.7849722,
+    "seen": 1792054558.427567,
+    "ast_hash": "1df79e238bc03ab76972be2fe57de508",
+    "semantic_hash": "1df79e238bc03ab76972be2fe57de508"
+  },
+  "src/main/java/local/djlink/DjLink.java": {
+    "mtime": 1791557437.597541,
+    "seen": 1792054558.4275682,
+    "ast_hash": "e1862987703d5cda5fcf29ce9c8ba1c0",
+    "semantic_hash": "e1862987703d5cda5fcf29ce9c8ba1c0"
+  },
+  "src/main/java/local/djlink/WindowsLauncher.java": {
+    "mtime": 1790970463.1787174,
+    "seen": 1792054558.427569,
+    "ast_hash": "8c240d9a990cc2d1cd97a461eb48ae29",
+    "semantic_hash": "8c240d9a990cc2d1cd97a461eb48ae29"
+  },
+  "src/main/resources/web/app.js": {
+    "mtime": 1791552081.2376328,
+    "seen": 1792054558.427569,
+    "ast_hash": "8fc152f40c7ca688e31dc69f6000dc91",
+    "semantic_hash": "8fc152f40c7ca688e31dc69f6000dc91"
+  },
+  "src/main/resources/web/motion.js": {
+    "mtime": 1790971899.672183,
+    "seen": 1792054558.4275699,
+    "ast_hash": "dfcaeeda6db495876504af3cd48be85e",
+    "semantic_hash": "dfcaeeda6db495876504af3cd48be85e"
+  },
+  "src/main/resources/web/waves.js": {
+    "mtime": 1791557437.597142,
+    "seen": 1792054558.427571,
+    "ast_hash": "b70760860c6539ef61e6de2e99111f52",
+    "semantic_hash": "b70760860c6539ef61e6de2e99111f52"
+  },
+  "src/test/java/local/djlink/RegressionCheck.java": {
+    "mtime": 1791557509.5475276,
+    "seen": 1792054558.427572,
+    "ast_hash": "509b3cefa2749cceec5c4413c64dda3f",
+    "semantic_hash": "509b3cefa2749cceec5c4413c64dda3f"
+  },
+  "src/test/java/local/djlink/SelfCheck.java": {
+    "mtime": 1791552387.6128848,
+    "seen": 1792054558.427573,
+    "ast_hash": "afa4ba7f4a157dec0f3d5f204f6295f2",
+    "semantic_hash": "afa4ba7f4a157dec0f3d5f204f6295f2"
+  },
+  "src/test/motion-check.js": {
+    "mtime": 1790971899.6724577,
+    "seen": 1792054558.427574,
+    "ast_hash": "f2bd68419fc5ac47b9da42ee29f0f699",
+    "semantic_hash": "f2bd68419fc5ac47b9da42ee29f0f699"
+  },
+  "src/test/wave-check.js": {
+    "mtime": 1791557257.525441,
+    "seen": 1792054558.427575,
+    "ast_hash": "5c1c7bf82eb61c5d19db7e67644eb1ea",
+    "semantic_hash": "5c1c7bf82eb61c5d19db7e67644eb1ea"
+  },
+  ".github/workflows/windows.yml": {
+    "mtime": 1791552387.6133657,
+    "seen": 1792054558.427576,
+    "ast_hash": "b4ba433ee35aa2d2997bd348b5564296",
+    "semantic_hash": "b4ba433ee35aa2d2997bd348b5564296"
+  },
+  "README.md": {
+    "mtime": 1791557437.5980082,
+    "seen": 1792054558.427576,
+    "ast_hash": "de85cf5dd56cba765c1de3b87906e342",
+    "semantic_hash": "de85cf5dd56cba765c1de3b87906e342"
+  },
+  "THIRD_PARTY.md": {
+    "mtime": 1790975083.6408744,
+    "seen": 1792054558.427577,
+    "ast_hash": "be2cab9b438e7ccf62d8edc69eb54d03",
+    "semantic_hash": "be2cab9b438e7ccf62d8edc69eb54d03"
+  },
+  "assets/icon-prompt.txt": {
+    "mtime": 1791558708.6543264,
+    "seen": 1792054558.4275782,
+    "ast_hash": "40579f9f4b210b73d0469e72ac7f2281",
+    "semantic_hash": "40579f9f4b210b73d0469e72ac7f2281"
+  },
+  "src/main/resources/web/index.html": {
+    "mtime": 1791552081.237929,
+    "seen": 1792054558.427579,
+    "ast_hash": "882b5cc800487e80e084a910ec8be772",
+    "semantic_hash": "882b5cc800487e80e084a910ec8be772"
+  },
+  "assets/DJLink.png": {
+    "mtime": 1791558664.2885296,
+    "seen": 1792054558.4275799,
+    "ast_hash": "a34bde67a50c84132ec14b4fe1b796f3",
+    "semantic_hash": "a34bde67a50c84132ec14b4fe1b796f3"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "runs": [
+    {
+      "date": "2026-10-15T08:55:58.429657+00:00",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "files": 22,
+      "token_usage_status": "unavailable_host_agents"
+    }
+  ],
+  "total_input_tokens": 0,
+  "total_output_tokens": 0,
+  "token_usage_status": "unavailable_host_agents",
+  "note": "Zero placeholders are not measured usage. AST extraction ran locally; semantic extraction used session agents without external API calls."
+}

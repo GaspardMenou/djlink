@@ -1,0 +1,218 @@
+{
+  "node_count": 277,
+  "unverified_node_count": 0,
+  "raw_edge_count": 648,
+  "non_object_edges": 0,
+  "missing_endpoint_edges": 0,
+  "dangling_endpoint_edges": 60,
+  "external_reference_edges": 4,
+  "self_loop_edges": 4,
+  "valid_candidate_edges": 584,
+  "exact_duplicate_edges": 0,
+  "directed_unique_endpoint_pairs": 548,
+  "directed_same_endpoint_collapsed_edges": 36,
+  "undirected_unique_endpoint_pairs": 548,
+  "undirected_same_endpoint_collapsed_edges": 36,
+  "same_endpoint_group_count": 30,
+  "relation_variant_groups": 21,
+  "source_file_variant_groups": 0,
+  "source_location_variant_groups": 8,
+  "context_variant_groups": 3,
+  "post_build_graph_type": "Graph",
+  "post_build_node_count": 315,
+  "post_build_edge_count": 612,
+  "post_build_error": "",
+  "producer_suppression": {
+    "path": "graphify/extract.py",
+    "total_sites": 12,
+    "sites": [
+      {
+        "line": 1759,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2292,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2294,
+        "name": "seen_doc_refs",
+        "tuple_arity": 0,
+        "sample": "seen_doc_refs: set[str] = set()"
+      },
+      {
+        "line": 2772,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = {n[\"id\"] for n in nodes}"
+      },
+      {
+        "line": 2919,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids = {n.get(\"id\") for n in nodes}"
+      },
+      {
+        "line": 3757,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 3930,
+        "name": "seen_keys",
+        "tuple_arity": 0,
+        "sample": "seen_keys: set[tuple] = set()"
+      },
+      {
+        "line": 6335,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6443,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 6522,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 7037,
+        "name": "seen_ids",
+        "tuple_arity": 0,
+        "sample": "seen_ids: set[str] = set()"
+      },
+      {
+        "line": 7038,
+        "name": "seen_edges",
+        "tuple_arity": 4,
+        "sample": "seen_edges: set[tuple[str, str, str, str | None]] = set()"
+      }
+    ],
+    "error": ""
+  },
+  "examples": [
+    {
+      "source": "macos_djlink_appdelegate_webview",
+      "target": "wkwebview",
+      "edge_count": 4,
+      "relations": [
+        "references"
+      ],
+      "source_files": [
+        "macos/DJLink.swift"
+      ],
+      "source_locations": [
+        "L83",
+        "L89",
+        "L94"
+      ],
+      "contexts": [
+        "parameter_type",
+        "return_type"
+      ]
+    },
+    {
+      "source": "macos_djlink_appdelegate",
+      "target": "macos_djlink_appdelegate_webview",
+      "edge_count": 3,
+      "relations": [
+        "method"
+      ],
+      "source_files": [
+        "macos/DJLink.swift"
+      ],
+      "source_locations": [
+        "L83",
+        "L89",
+        "L94"
+      ],
+      "contexts": [
+        ""
+      ]
+    },
+    {
+      "source": "src_test_java_local_djlink_regressioncheck_regressioncheck_status",
+      "target": "src_test_java_local_djlink_regressioncheck_regressioncheck_status_object_cdjstatus_l23",
+      "edge_count": 3,
+      "relations": [
+        "contains",
+        "references"
+      ],
+      "source_files": [
+        "src/test/java/local/djlink/RegressionCheck.java"
+      ],
+      "source_locations": [
+        "L19",
+        "L23",
+        "L27"
+      ],
+      "contexts": [
+        "",
+        "return_type"
+      ]
+    },
+    {
+      "source": "src_test_java_local_djlink_regressioncheck_regressioncheck_beat",
+      "target": "src_test_java_local_djlink_regressioncheck_regressioncheck_beat_object_beat_l41",
+      "edge_count": 3,
+      "relations": [
+        "calls",
+        "contains",
+        "references"
+      ],
+      "source_files": [
+        "src/test/java/local/djlink/RegressionCheck.java"
+      ],
+      "source_locations": [
+        "L35",
+        "L41"
+      ],
+      "contexts": [
+        "",
+        "call",
+        "return_type"
+      ]
+    },
+    {
+      "source": "src_test_wave_check_renderchecks",
+      "target": "src_test_wave_check_renderchecks_element",
+      "edge_count": 3,
+      "relations": [
+        "calls",
+        "contains",
+        "indirect_call"
+      ],
+      "source_files": [
+        "src/test/wave-check.js"
+      ],
+      "source_locations": [
+        "L44",
+        "L51"
+      ],
+      "contexts": [
+        "",
+        "call",
+        "collection"
+      ]
+    }
+  ],
+  "exported_graph_integrity": {
+    "unique_node_ids": true,
+    "all_edge_endpoints_present": true,
+    "nodes": 315,
+    "edges": 612,
+    "self_loop_edges": 4,
+    "browser_render_verified": false
+  }
+}
